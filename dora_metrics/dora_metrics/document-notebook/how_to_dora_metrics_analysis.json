@@ -1,0 +1,2214 @@
+{
+  "defaultTimeframe": {
+    "from": "now()-24h",
+    "to": "now()"
+  },
+  "sections": [
+    {
+      "hasContent": true,
+      "id": "{{ .extractedIDs.id_a5ccc628_7428_468f_8454_543025fb1665 }}",
+      "markdown": "# How to do DORA Analysis with Dynatrace\nThis notebook provides best practices on using Dynatrace to monitor some of the DORA metrics.\n\n**SDLC Events Are Coming**: Be aware the Dynatrace is currentely working on SDLC (Software Delivery Lifecycle Events) that will replace some of the best practices highlighted in this guide. We will update this guide as SDLC Events expand their use cases. To learn more about SDLC Events please go here: [Ingest SDLC Events into Dynatrace](https://docs.dynatrace.com/docs/deliver/sdlc-events)\n\n**Got questions or feedback?**: [devrel@dynatrace.com](mailto:devrel@dynatrace.com?subject=Feedback%20on%20DORA)\n\n**Target Audience**: DevSecOps, Platform Engineers, SREs\n\n**What are DORA metrics and their performance levels?**\nhttps://cloud.google.com/blog/products/devops-sre/using-the-four-keys-to-measure-your-devops-performance\n\n![](https://raw.githubusercontent.com/dynatrace-perfclinics/dynatrace-getting-started/main/images/howto_dora_overview.png)",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_87219f8b_99bf_4b61_b5bf_d36fa31d3d6f }}",
+      "markdown": "---",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_c550789b_34e2_43de_98f6_31640b085f4b }}",
+      "markdown": "# Step 1: Sending Deployment Events to Dynatrace\nTo make Dynatrace aware of deployments the best practice is to send a CUSTOM_DEPLOYMENT event or a BizEvent to Dynatrace from your CI/CD pipeline, e.g: Jenkins, GitHub, GitLab, Azure DevOps, ArgoCD ...\n\n## Option 1: Sending a CUSTOM_DEPLOYMENT Event\nThe documentation on [Version detection strategies](https://www.dynatrace.com/support/help/platform-modules/cloud-automation/release-monitoring/version-detection-strategies#events-ingestion) includes an example on how to send a CUSTOM_DEPLOYMENT Event to Dynatrace using the Events API v2.\n\n```\n{\n  \"eventType\": \"CUSTOM_DEPLOYMENT\",\n  \"title\": \"Easytravel 1.1\",\n  \"entitySelector\": \"type(PROCESS_GROUP_INSTANCE),tag(easytravel)\",\n  \"properties\": {\n    \"dt.event.deployment.name\":\"Easytravel 1.1\",\n    \"dt.event.deployment.version\": \"1.1\",\n    \"dt.event.deployment.release_stage\": \"production\" ,\n    \"dt.event.deployment.release_product\": \"frontend\",\n    \"dt.event.deployment.release_build_version\": \"123\",\n    \"approver\": \"Jason Miller\",\n    \"dt.event.deployment.ci_back_link\": \"https://pipelines/easytravel/123\",\n    \"gitcommit\": \"e5a6baac7eb\",\n    \"change-request\": \"CR-42\",\n    \"dt.event.deployment.remediation_action_link\": \"https://url.com\",\n    \"dt.event.is_rootcause_relevant\": true\n  }\n}\n```\n\n## Option 2: Sending a BizEvent\nAnother option is to send a BizEvent as shown in **CI/CD Pipeline Triggers SRG** workflow on the Dynatrace Playground Tenant. This one leverages the BizEvent Ingest API to send an event about a deployment.\n\n```\n// default function that will be run for the task\nexport default async function () {\n  // derive vesion from date\n  const now = new Date();\n  let hour = now.getHours();\n  var start = new Date(now.getFullYear(), 0, 0);\n  var diff = now - start;\n  var oneDay = 1000 * 60 * 60 * 24;\n  var day = Math.floor(diff / oneDay);\n  var buildId = 4711 + day + hour;\n\n  \n  // event that triggers validation\n  const event = { \n    \"timeframe.from\": \"now-32m\",\n    \"timeframe.to\": \"now-2m\",   \n    execution_context: {\n        buildId: \"\"+ buildId,\n        version: \"0.\" + day + \".\" + hour,\n        id: crypto.randomUUID().toString()\n    }, \n    \"tag.service\": \"carts\",\n\t\"tag.application\": \"sockshop\",\n\t\"tag.stage\": \"production\",\n    \"event.id\": crypto.randomUUID().toString(),\n    \"event.provider\": \"Jenkins\",\n    \"event.type\": \"DEPLOYMENT\"    \n  };\n\n  console.log(\"Ingesting event: \", event);\n\n  const ingestResponse = await fetch('/platform/classic/environment-api/v2/bizevents/ingest', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify(event),\n  }); \n\n  console.log(\"Event ingested\", ingestResponse.status, await ingestResponse.text());\n\n  return event[\"execution_context\"]\n}\n```",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_0a786b4f_1839_434b_989d_53e234e490b9 }}",
+      "markdown": "---",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_c0f65a02_1004_46cb_9197_b43af7111185 }}",
+      "markdown": "# Step 2: Analyze Events to measure Deployment Frequency\nThe following tiles use DQL to query the number of deployment events sent to Dynatrace. The power of DQL allows us to filter or split by environment, service and make calculations to get the value that you need, e.g: Deployments per Hour",
+      "type": "markdown"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 122,
+      "id": "{{ .extractedIDs.id_9473e3db_e8ee_4cd1_bcf7_4449778bb6ae }}",
+      "showInput": true,
+      "showTitle": false,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count()"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-08-30T12:34:59.969Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count()"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-08-30T12:34:59.971Z",
+                  "start": "2023-08-29T12:34:59.971Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 44,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count()",
+                "queryId": "{{ .extractedIDs.id_07e6bb1d_6731_4363_8a2e_ed4ea7339bc6 }}",
+                "sampled": false,
+                "scannedBytes": 181257526,
+                "scannedRecords": 512359,
+                "timezone": "Europe/Berlin"
+              }
+            },
+            "records": [
+              {
+                "count()": "6"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  0
+                ],
+                "mappings": {
+                  "count()": {
+                    "type": "long"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "state": "success",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "singleValue": {
+            "autoscale": true,
+            "label": "Deployments Last 24 hours",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 0,
+            "hiddenColumns": [
+              [
+                "dataPond"
+              ],
+              [
+                "rollupType"
+              ],
+              [
+                "tenant"
+              ],
+              [
+                "recordType"
+              ]
+            ],
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Prod Deployment Rate",
+      "type": "dql"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 146,
+      "id": "{{ .extractedIDs.id_286fd2d5_962a_4eec_8bca_9fc4da7cfc09 }}",
+      "showInput": true,
+      "showTitle": false,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count(), by:{timestamp, 1d}"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-09-12T13:53:31.984Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count(), by:{timestamp, 1d}"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-09-12T13:53:31.985Z",
+                  "start": "2023-09-11T13:53:31.985Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize by:{timestamp, 1d}, count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 52,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_EVENT\"\n| filter event.type == \"CUSTOM_DEPLOYMENT\"\n| summarize count(), by:{timestamp, 1d}",
+                "queryId": "{{ .extractedIDs.id_4e9f9a99_5179_4f9d_8de2_8051a2fde500 }}",
+                "sampled": false,
+                "scannedBytes": 185823058,
+                "scannedRecords": 511396,
+                "timezone": "Europe/Berlin"
+              }
+            },
+            "records": [
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T03:30:00.212000000+02:00"
+              },
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T03:50:00.686000000+02:00"
+              },
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T06:30:00.232000000+02:00"
+              },
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T06:50:01.321000000+02:00"
+              },
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T08:00:00.689000000+02:00"
+              },
+              {
+                "1d": "86400000000000",
+                "count()": "1",
+                "timestamp": "2023-09-12T08:20:02.070000000+02:00"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  5
+                ],
+                "mappings": {
+                  "1d": {
+                    "type": "duration"
+                  },
+                  "count()": {
+                    "type": "long"
+                  },
+                  "timestamp": {
+                    "type": "timestamp"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "state": "success",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "colorPalette": "swamps",
+            "gapPolicy": "connect",
+            "legend": {
+              "hidden": true
+            }
+          },
+          "singleValue": {
+            "autoscale": true,
+            "label": "",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 0,
+            "hiddenColumns": [
+              [
+                "dataPond"
+              ],
+              [
+                "rollupType"
+              ],
+              [
+                "tenant"
+              ],
+              [
+                "recordType"
+              ]
+            ],
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Prod Deployments",
+      "type": "dql"
+    },
+    {
+      "id": "{{ .extractedIDs.id_48f98712_59b1_49e0_a29a_9cd1d878be35 }}",
+      "markdown": "# Step 3: Validate Release with Site Reliability Guardian (SRG)\nThe [Site Reliability Guardian (SRG)](https://guu84124.apps.dynatrace.com/ui/apps/dynatrace.site.reliability.guardian/) allows you to automatically validate a release against a set of objectives. Ideally the SRG is triggered through a Workflow to automatically validate the Guardian definition for every new deployment as shown in the Dynatrace Playground Tenant Workflow **Carts Reliability Validation**\n\nThe guardian itself will create two BizEvents (event.provider=\"dynatrace.site.reliability.guardian\"):\n* event.type=\"guardian.validation.started\"\n* event.type=\"guardian.validation.finished\"\n\nTo fetch all finished events for instance you can use this\n```\nfetch bizevents\n| filter event.provider == \"dynatrace.site.reliability.guardian\"\n| filter event.type == \"guardian.validation.finished\"\n```\n\nThis can be used to get an overview of failed vs successful releases as you can see in the following chart",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_ba631e03_e6ff_4fab_861b_01341d119efd }}",
+      "markdown": "---",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_d3a15300_adbf_46e1_bf4a_c8115b6d5020 }}",
+      "markdown": "# Step 4: Analyze Release Quality based on Site Reliability Guardian (SRG) Results\nWith the triggering of the Site Reliability Guardian we can now analyze the releases by its evaluation status as you can see in the chart below. With the power of DQL you can calculate your Deployment Failure Rate metrics to match your definition of success, e.g: warning and pass could be considered pass - or - you can even factor in additional data from other tools such as pulling in data from your Code Coverage or Functional Test Results. This could be done by executing JavaScript to pull in that data from external sources.",
+      "type": "markdown"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 342,
+      "id": "{{ .extractedIDs.id_e507b491_3f25_49a1_9907_947cedb0c75c }}",
+      "showInput": true,
+      "showTitle": false,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch bizevents\n| filter event.provider == \"dynatrace.site.reliability.guardian\"\n| filter event.type == \"guardian.validation.finished\"\n| summarize count(), by:{validation.status}"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-08-30T12:28:25.486Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch bizevents\n| filter event.provider == \"dynatrace.site.reliability.guardian\"\n| filter event.type == \"guardian.validation.finished\"\n| summarize count(), by:{validation.status}"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-08-30T12:28:25.487Z",
+                  "start": "2023-08-29T12:28:25.487Z"
+                },
+                "canonicalQuery": "fetch bizevents\n| filter event.provider == \"dynatrace.site.reliability.guardian\"\n| filter event.type == \"guardian.validation.finished\"\n| summarize by:{validation.status}, count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 15,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch bizevents\n| filter event.provider == \"dynatrace.site.reliability.guardian\"\n| filter event.type == \"guardian.validation.finished\"\n| summarize count(), by:{validation.status}",
+                "queryId": "{{ .extractedIDs.id_9e6f49d0_be4b_4fd2_896d_44a918210b7b }}",
+                "sampled": false,
+                "scannedBytes": 38400169,
+                "scannedRecords": 953852,
+                "timezone": "Europe/Berlin"
+              }
+            },
+            "records": [
+              {
+                "count()": "5",
+                "validation.status": "error"
+              },
+              {
+                "count()": "3",
+                "validation.status": "fail"
+              },
+              {
+                "count()": "6",
+                "validation.status": "pass"
+              },
+              {
+                "count()": "36",
+                "validation.status": "warning"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  3
+                ],
+                "mappings": {
+                  "count()": {
+                    "type": "long"
+                  },
+                  "validation.status": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "state": "success",
+        "visualization": "categoricalBarChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "categoricalBarChartSettings": {
+              "categoryAxis": "validation.status",
+              "categoryAxisLabel": "validation.status",
+              "valueAxis": "count()",
+              "valueAxisLabel": "count()"
+            },
+            "gapPolicy": "connect"
+          },
+          "singleValue": {
+            "autoscale": true,
+            "label": "",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 0,
+            "hiddenColumns": [
+              [
+                "dataPond"
+              ],
+              [
+                "rollupType"
+              ],
+              [
+                "tenant"
+              ],
+              [
+                "recordType"
+              ],
+              [
+                "Keptn Service"
+              ],
+              [
+                "KeptnContext"
+              ],
+              [
+                "Keptns Bridge"
+              ]
+            ],
+            "lineWrapIds": [
+              [
+                "Keptns Bridge"
+              ]
+            ]
+          }
+        }
+      },
+      "title": "Guardian Results split by status",
+      "type": "dql"
+    },
+    {
+      "id": "{{ .extractedIDs.id_c83aff2d_5c68_4b57_a1d7_51638aac76f3 }}",
+      "markdown": "---",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_a46cf9a3_6c95_4e7d_ba6d_bcb7f1512213 }}",
+      "markdown": "# Step 5: Measure Time to Restore Service upon an error\nDynatrace Davis automatically detects problems in case errors happen. Those problems are stored in Grail with all context about Problem Impact, Start \u0026 Endtime, root cause components and more \n\nDQL can now be used to query DORA metrics around *Time to Restore Service* as you can see from some of the query examples below!\n\n**Explanation of Elite, High, Medium \u0026 Low Performance Level**\nThese are queries that highlight how many problems have been solved very fast, medium fast or where it took long to fix them. This is a great way to categorize your problem resolution time and gives you an indication of maturity!",
+      "type": "markdown"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 257,
+      "id": "{{ .extractedIDs.id_a7b1f09b_5ff9_49df_837f_c332a6d99927 }}",
+      "showInput": true,
+      "showTitle": true,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| summarize minutes_to_resolve=avg(toDouble(resolved_problem_duration)/60000), by:{bin(timestamp, 1m)}"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-08-30T12:28:45.453Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| summarize minutes_to_resolve=avg(toDouble(resolved_problem_duration)/60000), by:{bin(timestamp, 1m)}"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-08-30T12:28:45.454Z",
+                  "start": "2023-08-29T12:28:45.454Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| summarize by:{bin(timestamp, 1m)}, avg(toDouble(resolved_problem_duration) / 60000), alias:minutes_to_resolve",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 51,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| summarize minutes_to_resolve=avg(toDouble(resolved_problem_duration)/60000), by:{bin(timestamp, 1m)}",
+                "queryId": "{{ .extractedIDs.id_1ae39b7c_462f_41ef_96c0_8007ad108d5b }}",
+                "sampled": false,
+                "scannedBytes": 181185297,
+                "scannedRecords": 508053,
+                "timezone": "Europe/Berlin"
+              }
+            },
+            "records": [
+              {
+                "bin(timestamp, 1m)": "2023-08-29T14:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T14:52:00.000000000+02:00",
+                "minutes_to_resolve": 14.858783333333333
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T14:57:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T14:58:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T14:59:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:08:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:09:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:21:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:22:00.000000000+02:00",
+                "minutes_to_resolve": 15.619594444444445
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:23:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:27:00.000000000+02:00",
+                "minutes_to_resolve": 5.21525
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:31:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:32:00.000000000+02:00",
+                "minutes_to_resolve": 10
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:33:00.000000000+02:00",
+                "minutes_to_resolve": 10
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:38:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:52:00.000000000+02:00",
+                "minutes_to_resolve": 16
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T15:57:00.000000000+02:00",
+                "minutes_to_resolve": 5.21525
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:01:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:02:00.000000000+02:00",
+                "minutes_to_resolve": 10
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:21:00.000000000+02:00",
+                "minutes_to_resolve": 20.42445
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:22:00.000000000+02:00",
+                "minutes_to_resolve": 20.42445
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:24:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:27:00.000000000+02:00",
+                "minutes_to_resolve": 18
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:29:00.000000000+02:00",
+                "minutes_to_resolve": 27.113241666666667
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:51:00.000000000+02:00",
+                "minutes_to_resolve": 20.42445
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:57:00.000000000+02:00",
+                "minutes_to_resolve": 18
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T16:59:00.000000000+02:00",
+                "minutes_to_resolve": 27.113241666666667
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T19:57:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:02:00.000000000+02:00",
+                "minutes_to_resolve": 5.1101
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:23:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:24:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:27:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:28:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:30:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:31:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:32:00.000000000+02:00",
+                "minutes_to_resolve": 5.1101
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:35:00.000000000+02:00",
+                "minutes_to_resolve": 5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:36:00.000000000+02:00",
+                "minutes_to_resolve": 5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T20:57:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T21:05:00.000000000+02:00",
+                "minutes_to_resolve": 5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:22:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:23:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:25:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:27:00.000000000+02:00",
+                "minutes_to_resolve": 22.666666666666668
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:28:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:56:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T22:57:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:00:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:04:00.000000000+02:00",
+                "minutes_to_resolve": 11
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:18:00.000000000+02:00",
+                "minutes_to_resolve": 25
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:20:00.000000000+02:00",
+                "minutes_to_resolve": 27
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:22:00.000000000+02:00",
+                "minutes_to_resolve": 27
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:24:00.000000000+02:00",
+                "minutes_to_resolve": 17.4422
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:25:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:28:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:30:00.000000000+02:00",
+                "minutes_to_resolve": 37
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:31:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:34:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:43:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:49:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:53:00.000000000+02:00",
+                "minutes_to_resolve": 60
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-29T23:54:00.000000000+02:00",
+                "minutes_to_resolve": 17.4422
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:13:00.000000000+02:00",
+                "minutes_to_resolve": 6
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:14:00.000000000+02:00",
+                "minutes_to_resolve": 6
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:22:00.000000000+02:00",
+                "minutes_to_resolve": 15
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:23:00.000000000+02:00",
+                "minutes_to_resolve": 60
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:24:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:25:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:26:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:27:00.000000000+02:00",
+                "minutes_to_resolve": 12.666666666666666
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:28:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:39:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:40:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:41:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:43:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:44:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:45:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:46:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:47:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:48:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:49:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:50:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:51:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:52:00.000000000+02:00",
+                "minutes_to_resolve": 15
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:54:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:55:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:56:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:57:00.000000000+02:00",
+                "minutes_to_resolve": 14.5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:58:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T00:59:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:00:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:01:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:05:00.000000000+02:00",
+                "minutes_to_resolve": 25.108977777777778
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:06:00.000000000+02:00",
+                "minutes_to_resolve": 28
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:07:00.000000000+02:00",
+                "minutes_to_resolve": 28
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:08:00.000000000+02:00",
+                "minutes_to_resolve": 29
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:10:00.000000000+02:00",
+                "minutes_to_resolve": 31.333333333333332
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:13:00.000000000+02:00",
+                "minutes_to_resolve": 9
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:21:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:22:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:23:00.000000000+02:00",
+                "minutes_to_resolve": 21.0729
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:25:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:27:00.000000000+02:00",
+                "minutes_to_resolve": 22
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:29:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:30:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:31:00.000000000+02:00",
+                "minutes_to_resolve": 28.078883333333337
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:35:00.000000000+02:00",
+                "minutes_to_resolve": 25.108977777777778
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:37:00.000000000+02:00",
+                "minutes_to_resolve": 28
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:38:00.000000000+02:00",
+                "minutes_to_resolve": 29
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:40:00.000000000+02:00",
+                "minutes_to_resolve": 31.333333333333332
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:43:00.000000000+02:00",
+                "minutes_to_resolve": 9
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:53:00.000000000+02:00",
+                "minutes_to_resolve": 21.0729
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T01:57:00.000000000+02:00",
+                "minutes_to_resolve": 22
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:01:00.000000000+02:00",
+                "minutes_to_resolve": 28.078883333333334
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:21:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:22:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:24:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:25:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:26:00.000000000+02:00",
+                "minutes_to_resolve": 24.726966666666666
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:27:00.000000000+02:00",
+                "minutes_to_resolve": 25.45393333333333
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:51:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:55:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T02:56:00.000000000+02:00",
+                "minutes_to_resolve": 25.45393333333333
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:34:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:35:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:36:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:38:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:39:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:43:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:44:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:45:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:46:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:47:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:48:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:54:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:55:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:56:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:57:00.000000000+02:00",
+                "minutes_to_resolve": 23.2
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:58:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T03:59:00.000000000+02:00",
+                "minutes_to_resolve": 26
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T04:00:00.000000000+02:00",
+                "minutes_to_resolve": 26
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T04:26:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T04:27:00.000000000+02:00",
+                "minutes_to_resolve": 24
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T04:29:00.000000000+02:00",
+                "minutes_to_resolve": 26
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:15:00.000000000+02:00",
+                "minutes_to_resolve": 13
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:21:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:25:00.000000000+02:00",
+                "minutes_to_resolve": 26.8824
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:26:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:27:00.000000000+02:00",
+                "minutes_to_resolve": 28.665516666666665
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:28:00.000000000+02:00",
+                "minutes_to_resolve": 29.665516666666665
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:33:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:34:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:35:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:36:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:37:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:38:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:39:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:40:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:41:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:43:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:44:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:45:00.000000000+02:00",
+                "minutes_to_resolve": 13
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:46:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:47:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:48:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:49:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:50:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:51:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:52:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:54:00.000000000+02:00",
+                "minutes_to_resolve": 21
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:55:00.000000000+02:00",
+                "minutes_to_resolve": 22.4706
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:56:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:57:00.000000000+02:00",
+                "minutes_to_resolve": 24.095073809523807
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:58:00.000000000+02:00",
+                "minutes_to_resolve": 26.666206666666664
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T06:59:00.000000000+02:00",
+                "minutes_to_resolve": 26.363636363636363
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:24:00.000000000+02:00",
+                "minutes_to_resolve": 21
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:25:00.000000000+02:00",
+                "minutes_to_resolve": 21
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:27:00.000000000+02:00",
+                "minutes_to_resolve": 23.333333333333332
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:28:00.000000000+02:00",
+                "minutes_to_resolve": 24.666666666666668
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:29:00.000000000+02:00",
+                "minutes_to_resolve": 27
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:54:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:57:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T07:59:00.000000000+02:00",
+                "minutes_to_resolve": 7
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:00:00.000000000+02:00",
+                "minutes_to_resolve": 7
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:07:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:08:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:09:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:10:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:13:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:14:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:16:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:18:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:19:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:20:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:21:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:22:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:23:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:24:00.000000000+02:00",
+                "minutes_to_resolve": 20.75
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:25:00.000000000+02:00",
+                "minutes_to_resolve": 21
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:26:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:27:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:28:00.000000000+02:00",
+                "minutes_to_resolve": 24.333333333333332
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:29:00.000000000+02:00",
+                "minutes_to_resolve": 24.333333333333332
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:30:00.000000000+02:00",
+                "minutes_to_resolve": 7
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:31:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:32:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:33:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:36:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:37:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:38:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:39:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:45:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:46:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:48:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:49:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:52:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:53:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:54:00.000000000+02:00",
+                "minutes_to_resolve": 20
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:55:00.000000000+02:00",
+                "minutes_to_resolve": 21
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:56:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:57:00.000000000+02:00",
+                "minutes_to_resolve": 23
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:58:00.000000000+02:00",
+                "minutes_to_resolve": 24.5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T08:59:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:00:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:01:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:06:00.000000000+02:00",
+                "minutes_to_resolve": 64
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:07:00.000000000+02:00",
+                "minutes_to_resolve": 42
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:08:00.000000000+02:00",
+                "minutes_to_resolve": 66
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:09:00.000000000+02:00",
+                "minutes_to_resolve": 67
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:10:00.000000000+02:00",
+                "minutes_to_resolve": 67
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:37:00.000000000+02:00",
+                "minutes_to_resolve": 47.5
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:38:00.000000000+02:00",
+                "minutes_to_resolve": 66
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T09:40:00.000000000+02:00",
+                "minutes_to_resolve": 67
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:03:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:04:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:05:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:06:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:11:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:12:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:17:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:21:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:24:00.000000000+02:00",
+                "minutes_to_resolve": 18
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T10:54:00.000000000+02:00",
+                "minutes_to_resolve": 18
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:01:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:04:00.000000000+02:00",
+                "minutes_to_resolve": 60.6094
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:28:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:29:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:33:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:34:00.000000000+02:00",
+                "minutes_to_resolve": 60.6094
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:41:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T11:42:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T13:15:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T13:57:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T13:58:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T13:59:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T14:02:00.000000000+02:00"
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T14:07:00.000000000+02:00",
+                "minutes_to_resolve": 10
+              },
+              {
+                "bin(timestamp, 1m)": "2023-08-30T14:08:00.000000000+02:00",
+                "minutes_to_resolve": 10
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  394
+                ],
+                "mappings": {
+                  "bin(timestamp, 1m)": {
+                    "type": "timestamp"
+                  },
+                  "minutes_to_resolve": {
+                    "type": "double"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "showConsole": true,
+        "state": "success",
+        "visualization": "barChart",
+        "visualizationSettings": {
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 31,
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Problem resolution Time",
+      "type": "dql"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 88,
+      "id": "{{ .extractedIDs.id_6894cd87_19a2_4989_8590_78d1cdf3458d }}",
+      "showInput": true,
+      "showTitle": true,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003c 60\n| summarize count()"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-04-19T16:39:02.161Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003c 60\n| summarize count()"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-04-19T16:39:01.819Z",
+                  "start": "2023-04-18T16:39:01.819Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter toDouble(resolved_problem_duration) / 60000 \u003c 60\n| summarize count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 55,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003c 60\n| summarize count()",
+                "queryId": "{{ .extractedIDs.id_61fd1d13_4b4f_4911_a4e5_dac2e262c5cf }}",
+                "scannedBytes": 128297282,
+                "scannedRecords": 544351,
+                "timezone": "Z"
+              }
+            },
+            "records": [
+              {
+                "count()": "346"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  0
+                ],
+                "mappings": {
+                  "count()": {
+                    "type": "long"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "showConsole": true,
+        "state": "success",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "singleValue": {
+            "autoscale": false,
+            "label": "Number of events at Elite performance level",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 31,
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Time to Restore",
+      "type": "dql"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 85,
+      "id": "{{ .extractedIDs.id_5edb917b_a42a_418b_8be2_4e348ab0e46a }}",
+      "showInput": true,
+      "showTitle": true,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 60 and (toDouble(resolved_problem_duration)/60000) \u003c 1440 \n| summarize count()"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-04-19T16:40:52.937Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 60 and (toDouble(resolved_problem_duration)/60000) \u003c 1440 \n| summarize count()"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-04-19T16:40:52.702Z",
+                  "start": "2023-04-18T16:40:52.702Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter toDouble(resolved_problem_duration) / 60000 \u003e 60 AND toDouble(resolved_problem_duration) / 60000 \u003c 1440\n| summarize count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 72,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 60 and (toDouble(resolved_problem_duration)/60000) \u003c 1440 \n| summarize count()",
+                "queryId": "{{ .extractedIDs.id_c08ee928_0c73_43f6_be1e_1272df113536 }}",
+                "scannedBytes": 128439209,
+                "scannedRecords": 545188,
+                "timezone": "Z"
+              }
+            },
+            "records": [
+              {
+                "count()": "51"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  0
+                ],
+                "mappings": {
+                  "count()": {
+                    "type": "long"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "showConsole": true,
+        "state": "success",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "singleValue": {
+            "autoscale": false,
+            "label": "Number of events at High performance level",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 31,
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Time to Restore",
+      "type": "dql"
+    },
+    {
+      "davisAnalysis": {
+        "analyzerComponentState": {
+          "resultState": {}
+        }
+      },
+      "height": 85,
+      "id": "{{ .extractedIDs.id_ac8d10a9_6c45_4ded_a2d8_a044912350c5 }}",
+      "showInput": true,
+      "showTitle": true,
+      "state": {
+        "davis": {
+          "davisVisualization": {
+            "isAvailable": true
+          },
+          "includeLogs": true,
+          "isDavisVisualizationAvailable": true
+        },
+        "input": {
+          "timeframe": {
+            "from": "now()-24h",
+            "to": "now()"
+          },
+          "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 1400\n| summarize count()"
+        },
+        "querySettings": {
+          "defaultSamplingRatio": 10,
+          "defaultScanLimitGbytes": 500,
+          "enableSampling": false,
+          "maxResultMegaBytes": 1,
+          "maxResultRecords": 1000
+        },
+        "result": {
+          "code": 200,
+          "dateTime": "2023-04-19T16:44:45.559Z",
+          "input": {
+            "timeframe": {
+              "from": "now()-24h",
+              "to": "now()"
+            },
+            "value": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 1400 and (toDouble(resolved_problem_duration)/60000) \u003c 10080 \n| summarize count()"
+          },
+          "notifications": [],
+          "value": {
+            "metadata": {
+              "grail": {
+                "analysisTimeframe": {
+                  "end": "2023-04-19T16:44:45.352Z",
+                  "start": "2023-04-18T16:44:45.352Z"
+                },
+                "canonicalQuery": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter toDouble(resolved_problem_duration) / 60000 \u003e 1400 AND toDouble(resolved_problem_duration) / 60000 \u003c 10080\n| summarize count()",
+                "dqlVersion": "V1_0",
+                "executionTimeMilliseconds": 74,
+                "locale": "",
+                "notifications": [],
+                "query": "fetch events\n| filter event.kind == \"DAVIS_PROBLEM\"\n| filter (toDouble(resolved_problem_duration)/60000) \u003e 1400 and (toDouble(resolved_problem_duration)/60000) \u003c 10080 \n| summarize count()",
+                "queryId": "{{ .extractedIDs.id_453d7f77_f580_4763_bb6b_bc42322616cb }}",
+                "scannedBytes": 128461351,
+                "scannedRecords": 545365,
+                "timezone": "Z"
+              }
+            },
+            "records": [
+              {
+                "count()": "0"
+              }
+            ],
+            "types": [
+              {
+                "indexRange": [
+                  0,
+                  0
+                ],
+                "mappings": {
+                  "count()": {
+                    "type": "long"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "showConsole": true,
+        "state": "success",
+        "visualization": "singleValue",
+        "visualizationSettings": {
+          "chartSettings": {
+            "gapPolicy": "connect"
+          },
+          "singleValue": {
+            "autoscale": false,
+            "label": "Number of events at Medium or Low performance level",
+            "showLabel": true
+          },
+          "table": {
+            "enableLineWrap": true,
+            "firstVisibleRowIndex": 31,
+            "lineWrapIds": []
+          }
+        }
+      },
+      "title": "Time to Restore",
+      "type": "dql"
+    },
+    {
+      "id": "{{ .extractedIDs.id_691a9d53_2f26_42c2_ba16_6f0306be34c1 }}",
+      "markdown": "---",
+      "type": "markdown"
+    },
+    {
+      "id": "{{ .extractedIDs.id_b7464a67_6169_4375_bb5e_402bc028f860 }}",
+      "markdown": "# Next Steps: Dynatrace is working on more out-of-the-box capabilities\nWhile you can extract all the DORA metrics yourself by querying the events through DQL Dynatrace is working on more out-of-the-box solutions to provide you DORA, SPACE and other DevOps, SRE \u0026 Platform Engineering Maturity Metrics.\n\nIf you are interested let us know by sending us a quick note: [devrel@dynatrace.com](mailto:devrel@dynatrace.com?subect=Better%20DORA%20Monitoring)\n\n![](https://raw.githubusercontent.com/dynatrace-perfclinics/dynatrace-getting-started/main/images/howto_dora_doradashboard.png)",
+      "type": "markdown"
+    }
+  ],
+  "version": "6"
+}
